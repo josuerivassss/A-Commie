@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+httpx
+numpy
+pillow
+pydantic
+deep_translator
+python_weather
+pilmoji
+pydash
+colour
+python-dotenv
+pydantic-settings
