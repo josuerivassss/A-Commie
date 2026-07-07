@@ -1,22 +1,22 @@
 from fastapi import APIRouter, Query, Response
-from PIL import Image, ImageFilter
-from services import painter
+from PIL import Image
+from services import painter, ImagesGallery
 
 router = APIRouter(prefix="/image", tags=["Image"])
 
-@router.get("/blur",
-    description="Apply a blur filter to your image",
+@router.get("/delete",
+    description="Apply a delete filter to your image",
     response_class=Response
 )
-async def blur(
+async def delete(
     image: str = Query(description="The image URL", examples=["https://images.com/myimage.png"]),
-    radius: int = Query(2, description="The radius for the blur", ge=1, le=10),
     size: int = Query(512, description="The size of the output image", ge=128, le=2048)
 ):
     img = await painter.open_image(image, param="image")
-    if img.size[0] != size or img.size[1] != size:
-        img = img.resize((size, size), Image.Resampling.LANCZOS)
+    img = img.resize((180, 180), Image.Resampling.LANCZOS)
+    background = ImagesGallery.get("delete").resize((size, size))
+    background.paste(img, (0, 0), img)
     return Response(
-        content=painter.prepare(img.filter(ImageFilter.GaussianBlur(radius))),
+        content=painter.prepare(background),
         media_type="image/png"
     )

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Query, Response
 from services import painter, ImagesGallery, FontsGallery
-from textwrap import fill
 
 router = APIRouter(prefix="/image", tags=["Image"])
 
@@ -11,8 +10,8 @@ router = APIRouter(prefix="/image", tags=["Image"])
 async def sonic(
     text: str = Query(description="The text for the image", max_lenght=150)
 ):
-    font = FontsGallery.get("GGSans").font_variant(size=30)
-    text = fill(text, 50)
+    font = FontsGallery.get("GGSans").font_variant(size=50)
+    text = painter.wrap_text(text, font, 350)
     image = ImagesGallery.get("sonic").convert("RGBA")
-    await painter.draw_text(image, xy=(366, 65), text=text, fill="White", font=font)
+    await painter.render_text(image, (365, 65), text, font, fill="White")
     return Response(content=painter.prepare(image), media_type="image/png")
