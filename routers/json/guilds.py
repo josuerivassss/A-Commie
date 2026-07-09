@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
+from core.access import require_access
+from core.discord_oauth import discord_oauth
 from core.manager import mongo
-from core.security import require_api_key
 from schemas.requests import GuildConfigUpdate
 from schemas.responses import HTTPResponse
 
-router = APIRouter(prefix="/json/guilds", tags=["Guilds"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/json/guilds", tags=["Guilds"], dependencies=[Depends(require_access)])
 
 @router.get(
     "/{guild_id}",
@@ -26,8 +27,6 @@ async def update_guild_config(guild_id: int, body: GuildConfigUpdate):
     if not updates:
         return HTTPResponse.use(status=400, error="No fields provided to update")
 
-    # Map the flat request body to the same dotted-path document shape the
-    # bot itself writes (see src/bcommie/cogs/configuration.py and greetings.py).
     field_map = {
         "prefix": "prefix",
         "language": "language",
@@ -43,3 +42,13 @@ async def update_guild_config(guild_id: int, body: GuildConfigUpdate):
 
     doc = await mongo.get(table="guilds", id=guild_id)
     return HTTPResponse.use(data=doc)
+
+
+@router.get(
+    "/{guild_id}/channels",
+    description="Lists the guild's text/announcement channels (for dashboard channel dropdowns).",
+    response_model=HTTPResponse,
+)
+async def get_guild_channels(guild_id: int):
+    channels = await discord_oauth.get_guild_text_channels(guild_id)
+    return HTTPResponse.use(data=[{"id": c["id"], "name": c["name"]} for c in channels])
