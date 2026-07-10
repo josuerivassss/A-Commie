@@ -38,7 +38,14 @@ async def update_guild_config(guild_id: int, body: GuildConfigUpdate):
         "leave_message": "leave.message",
     }
     for field, value in updates.items():
-        await mongo.set(table="guilds", id=guild_id, path=field_map[field], value=value)
+        path = field_map[field]
+        # Empty prefix means "use the bot's default" -- that only works if
+        # the field is actually removed, not set to "" (an empty string is
+        # still a valid, non-None value, so the bot would never fall back).
+        if field == "prefix" and value == "":
+            await mongo.delete_field(table="guilds", id=guild_id, path=path)
+        else:
+            await mongo.set(table="guilds", id=guild_id, path=path, value=value)
 
     doc = await mongo.get(table="guilds", id=guild_id)
     return HTTPResponse.use(data=doc)
