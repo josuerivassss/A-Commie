@@ -105,6 +105,20 @@ class DiscordOAuth:
             (c for c in channels if c.get("type") in (GUILD_TEXT, GUILD_ANNOUNCEMENT)),
             key=lambda c: c.get("position", 0),
         )
+    
+    async def get_guild_roles(self, guild_id: int) -> list[dict[str, Any]]:
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_BASE}/guilds/{guild_id}/roles", headers=headers)
+        if resp.status_code != 200:
+            raise DiscordOAuthError(f"Guild roles fetch failed ({resp.status_code}): {resp.text}")
+
+        roles = resp.json()
+        return sorted(
+            (r for r in roles if not r.get("managed") and str(r["id"]) != str(guild_id)),
+            key=lambda r: r.get("position", 0),
+            reverse=True,
+        )
 
 
 discord_oauth = DiscordOAuth(

@@ -16,7 +16,6 @@ async def get_guild_config(guild_id: int):
     doc = await mongo.get(table="guilds", id=guild_id)
     return HTTPResponse.use(data=doc or {})
 
-
 @router.patch(
     "/{guild_id}",
     description="Partially updates a guild's configuration. Only provided fields are changed.",
@@ -59,3 +58,12 @@ async def update_guild_config(guild_id: int, body: GuildConfigUpdate):
 async def get_guild_channels(guild_id: int):
     channels = await discord_oauth.get_guild_text_channels(guild_id)
     return HTTPResponse.use(data=[{"id": c["id"], "name": c["name"]} for c in channels])
+
+@router.get(
+    "/{guild_id}/roles",
+    description="Lists the guild's assignable roles (for the autoroles selector).",
+    response_model=HTTPResponse,
+)
+async def get_guild_roles(guild_id: int):
+    roles = await discord_oauth.get_guild_roles(guild_id)
+    return HTTPResponse.use(data=[{"id": r["id"], "name": r["name"], "color": r.get("color", 0)} for r in roles])

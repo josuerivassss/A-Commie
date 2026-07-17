@@ -19,6 +19,7 @@ from core.exceptions import APIException
 from core.jwt_auth import create_jwt, decode_jwt
 from core.session_exchange import create_exchange_code, redeem_exchange_code
 from schemas.responses import HTTPResponse
+from core.dashboard_access import is_authorized
 
 router = APIRouter(prefix="/json/auth", tags=["Auth"])
 
@@ -76,6 +77,9 @@ async def me(authorization: str = Header(default="")):
         payload = decode_jwt(token)
     except pyjwt.PyJWTError as exc:
         raise APIException(status=401, error="Invalid or expired session") from exc
+    
+    if not await is_authorized(int(payload["sub"])):
+        raise APIException(status=403, error="dashboard_access_denied")
 
     manageable = await discord_oauth.get_user_manageable_guilds(payload["discord_token"])
     bot_guild_ids = await discord_oauth.get_bot_guild_ids()

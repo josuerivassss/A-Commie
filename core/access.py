@@ -1,16 +1,17 @@
 """Auth dependencies for /json routes.
 
-Two credential types are accepted throughout, so existing server-to-server
-integrations keep working while the new dashboard uses per-user login:
-  - `X-API-Key` header matching the configured API_KEY (trusted server), or
-  - `Authorization: Bearer <jwt>` from a logged-in user.
+Two layers apply to every dashboard request:
+  1. Credential check -- EITHER an `X-API-Key` (trusted server-to-server
+     caller) OR a valid `Authorization: Bearer <jwt>` from a Discord login.
+  2. Dashboard allowlist check -- even with a valid Discord login, the
+     user's ID must be in the `dashboard_access` collection (granted via
+     the bot's `!dashboard grant` command). API-key callers skip this
+     layer, since they're trusted server-to-server integrations, not
+     end-user dashboard sessions.
 
 Guild-scoped routes additionally require the user to manage that guild AND
 the bot to actually be present there. User-scoped routes (e.g. a user's own
 reminders) just require the token's subject to match the path's user_id.
-Routes that only learn "which guild/user does this resource belong to"
-after a DB lookup (e.g. deleting a reminder by id) use `resolve_identity`
-and check ownership themselves once they have the row in hand.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import jwt as pyjwt
 from fastapi import Header
 
 from config import settings
+from core.dashboard_access import is_authorized
 from core.discord_oauth import discord_oauth
 from core.exceptions import APIException
 from core.jwt_auth import decode_jwt
@@ -39,6 +41,16 @@ def _decode_bearer(authorization: str) -> dict[str, Any] | None:
         return None
 
 
+async def _require_authorized_user(authorization: str) -> dict[str, Any]:
+    """Shared by every dependency below: valid JWT + on the dashboard allowlist."""
+    payload = _decode_bearer(authorization)
+    if payload is None:
+        raise APIException(status=401, error="Missing or invalid credentials")
+    if not await is_authorized(int(payload["sub"])):
+        raise APIException(status=403, error="dashboard_access_denied")
+    return payload
+
+
 async def require_access(
     guild_id: int,
     x_api_key: str = Header(default=""),
@@ -48,9 +60,7 @@ async def require_access(
     if _is_valid_api_key(x_api_key):
         return
 
-    payload = _decode_bearer(authorization)
-    if payload is None:
-        raise APIException(status=401, error="Missing or invalid credentials")
+    payload = await _require_authorized_user(authorization)
 
     manageable = await discord_oauth.get_user_manageable_guilds(payload["discord_token"])
     if not any(int(g["id"]) == guild_id for g in manageable):
@@ -70,8 +80,8 @@ async def require_self_or_api_key(
     if _is_valid_api_key(x_api_key):
         return
 
-    payload = _decode_bearer(authorization)
-    if payload is None or int(payload["sub"]) != user_id:
+    payload = await _require_authorized_user(authorization)
+    if int(payload["sub"]) != user_id:
         raise APIException(status=401, error="Missing or invalid credentials")
 
 
@@ -80,14 +90,8 @@ async def resolve_identity(
     authorization: str = Header(default=""),
 ) -> dict[str, Any] | None:
     """For routes that only know which guild/user a resource belongs to
-    after looking it up (e.g. deleting a reminder by its id, not by
-    guild/user). Returns None for a trusted API-key caller (skip further
-    checks); returns the decoded JWT payload for a logged-in user (the
-    route must then verify ownership itself with the row in hand)."""
+    after looking it up. Returns None for a trusted API-key caller; returns
+    the decoded JWT payload for a logged-in, allowlisted user."""
     if _is_valid_api_key(x_api_key):
         return None
-
-    payload = _decode_bearer(authorization)
-    if payload is None:
-        raise APIException(status=401, error="Missing or invalid credentials")
-    return payload
+    return await _require_authorized_user(authorization)
