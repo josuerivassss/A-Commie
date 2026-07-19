@@ -113,6 +113,18 @@ async def get_guild_roles(guild_id: int):
     roles = await discord_oauth.get_guild_roles(guild_id)
     return HTTPResponse.use(data=[{"id": r["id"], "name": r["name"], "color": r.get("color", 0)} for r in roles])
 
+@router.get(
+    "/{guild_id}/emojis",
+    description="Lists the guild's non-animated custom emojis usable by everyone (for the starboard emoji picker).",
+    response_model=HTTPResponse,
+)
+async def get_guild_emojis(guild_id: int):
+    emojis = await discord_oauth.get_guild_emojis(guild_id)
+    return HTTPResponse.use(data=[
+        {"id": e["id"], "name": e["name"], "url": f"https://cdn.discordapp.com/emojis/{e['id']}.png"}
+        for e in emojis
+        if not e.get("animated") and not e.get("roles")
+    ])
 
 @router.get(
     "/{guild_id}/starboard",

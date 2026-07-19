@@ -119,6 +119,14 @@ class DiscordOAuth:
             key=lambda r: r.get("position", 0),
             reverse=True,
         )
+    
+    async def get_guild_emojis(self, guild_id: int) -> list[dict[str, Any]]:
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_BASE}/guilds/{guild_id}/emojis", headers=headers)
+        if resp.status_code != 200:
+            raise DiscordOAuthError(f"Guild emojis fetch failed ({resp.status_code}): {resp.text}")
+        return resp.json()
 
 
 discord_oauth = DiscordOAuth(
