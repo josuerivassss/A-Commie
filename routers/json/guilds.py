@@ -1,4 +1,13 @@
+"""Guild configuration endpoints: prefix, language, welcome/leave messages,
+and starboard -- everything stored under a single `guilds` document per
+guild_id in MongoDB. Consolidated here (rather than split across routers)
+since it's all reads/writes against the same document.
+"""
+from typing import Optional
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+
 from core.access import require_access
 from core.discord_oauth import discord_oauth
 from core.manager import mongo
@@ -7,6 +16,42 @@ from schemas.responses import HTTPResponse
 
 router = APIRouter(prefix="/json/guilds", tags=["Guilds"], dependencies=[Depends(require_access)])
 
+DEFAULT_STARBOARD = {
+    "enabled": False,
+    "channel_id": None,
+    "emoji": "\u2b50",
+    "threshold": 3,
+    "count_self_stars": False,
+}
+
+
+class StarboardUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    channel_id: Optional[int] = None
+    emoji: Optional[str] = Field(default=None, max_length=60)
+    threshold: Optional[int] = Field(default=None, ge=1, le=500)
+    count_self_stars: Optional[bool] = None
+
+
+def _serialize_guild(doc: dict) -> dict:
+    # Cast channel IDs to str before they leave the API -- prevents JS
+    # Number precision loss on the frontend for snowflakes >= 2^53.
+    serialized = dict(doc)
+    for section in ("welcome", "leave"):
+        block = serialized.get(section)
+        if isinstance(block, dict) and block.get("channel") is not None:
+            block = dict(block)
+            block["channel"] = str(block["channel"])
+            serialized[section] = block
+    return serialized
+
+
+def _serialize_starboard(doc: dict) -> dict:
+    merged = {**DEFAULT_STARBOARD, **doc}
+    merged["channel_id"] = str(merged["channel_id"]) if merged["channel_id"] is not None else None
+    return merged
+
+
 @router.get(
     "/{guild_id}",
     description="Returns a guild's full configuration document (prefix, language, welcome/leave settings).",
@@ -14,7 +59,7 @@ router = APIRouter(prefix="/json/guilds", tags=["Guilds"], dependencies=[Depends
 )
 async def get_guild_config(guild_id: int):
     doc = await mongo.get(table="guilds", id=guild_id)
-    return HTTPResponse.use(data=doc or {})
+    return HTTPResponse.use(data=_serialize_guild(doc or {}))
 
 @router.patch(
     "/{guild_id}",
@@ -47,7 +92,7 @@ async def update_guild_config(guild_id: int, body: GuildConfigUpdate):
             await mongo.set(table="guilds", id=guild_id, path=path, value=value)
 
     doc = await mongo.get(table="guilds", id=guild_id)
-    return HTTPResponse.use(data=doc)
+    return HTTPResponse.use(data=_serialize_guild(doc or {}))
 
 
 @router.get(
@@ -67,3 +112,27 @@ async def get_guild_channels(guild_id: int):
 async def get_guild_roles(guild_id: int):
     roles = await discord_oauth.get_guild_roles(guild_id)
     return HTTPResponse.use(data=[{"id": r["id"], "name": r["name"], "color": r.get("color", 0)} for r in roles])
+
+
+@router.get(
+    "/{guild_id}/starboard",
+    description="Returns a guild's starboard configuration.",
+    response_model=HTTPResponse,
+)
+async def get_starboard(guild_id: int):
+    doc = await mongo.get(table="guilds", id=guild_id, path="starboard") or {}
+    return HTTPResponse.use(data=_serialize_starboard(doc))
+
+@router.patch(
+    "/{guild_id}/starboard",
+    description="Partially updates a guild's starboard configuration.",
+    response_model=HTTPResponse,
+)
+async def update_starboard(guild_id: int, body: StarboardUpdate):
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        return HTTPResponse.use(status=400, error="No fields provided to update")
+    for field, value in updates.items():
+        await mongo.set(table="guilds", id=guild_id, path=f"starboard.{field}", value=value)
+    doc = await mongo.get(table="guilds", id=guild_id, path="starboard") or {}
+    return HTTPResponse.use(data=_serialize_starboard(doc))
