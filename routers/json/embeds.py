@@ -5,11 +5,9 @@ on the resulting message. Rate-limited server-wide (see core/embed_cooldown.py).
 from __future__ import annotations
 
 import asyncio
-import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, model_validator
 
 from core.access import require_access
 from core.discord_oauth import DiscordOAuthError, discord_oauth
@@ -17,30 +15,49 @@ from core.embed_cooldown import mark_sent, seconds_remaining
 from core.exceptions import APIException
 from schemas.responses import HTTPResponse
 
+import re
+from pydantic import BaseModel, Field, field_validator, model_validator
+
 router = APIRouter(prefix="/json/guilds/{guild_id}/embeds", tags=["Embeds"], dependencies=[Depends(require_access)])
 
 MAX_EMBEDS = 10
 MAX_TOTAL_CHARACTERS = 6000
 MAX_REACTIONS = 20
 CUSTOM_EMOJI_PATTERN = re.compile(r"^<a?:(\w+):(\d+)>$")
+URL_PATTERN = re.compile(r"^https?://\S+$")
 
+
+def _validate_url(value: str | None) -> str | None:
+    if not value:
+        return value
+    if not URL_PATTERN.match(value):
+        raise ValueError("Must be a valid http(s) URL")
+    return value
 
 class EmbedField(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     value: str = Field(min_length=1, max_length=1024)
     inline: bool = False
 
-
 class EmbedAuthor(BaseModel):
     name: Optional[str] = Field(default=None, max_length=256)
     url: Optional[str] = None
     icon_url: Optional[str] = None
+
+    @field_validator("url", "icon_url")
+    @classmethod
+    def _check_urls(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_url(value)
 
 
 class EmbedFooter(BaseModel):
     text: Optional[str] = Field(default=None, max_length=2048)
     icon_url: Optional[str] = None
 
+    @field_validator("icon_url")
+    @classmethod
+    def _check_url(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_url(value)
 
 class EmbedPayload(BaseModel):
     title: Optional[str] = Field(default=None, max_length=256)
@@ -53,6 +70,11 @@ class EmbedPayload(BaseModel):
     thumbnail: Optional[str] = None
     author: Optional[EmbedAuthor] = None
     fields: list[EmbedField] = Field(default_factory=list, max_length=25)
+
+    @field_validator("url", "image", "thumbnail")
+    @classmethod
+    def _check_urls(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_url(value)
 
     def character_count(self) -> int:
         total = len(self.title or "") + len(self.description or "")
