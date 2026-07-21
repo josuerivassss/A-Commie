@@ -1,16 +1,20 @@
 """Minimal async Discord REST client for the OAuth login flow: code
 exchange, the logged-in user's profile, the guilds they can manage, which
-of those the bot is actually in, and a guild's text channels (for the
-dashboard's channel dropdowns).
+of those the bot is actually in, a guild's text channels/roles/emojis (for
+the dashboard's selectors), and sending messages/reactions on the bot's
+behalf (embed sender).
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from config import settings
+from core.permissions import can_send_embeds, compute_channel_permissions
 
 API_BASE = "https://discord.com/api/v10"
 MANAGE_GUILD = 0x20
@@ -29,6 +33,7 @@ class DiscordOAuth:
         self.bot_token = bot_token
         self._bot_guild_ids_cache: tuple[float, set[int]] | None = None
         self._user_guilds_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._bot_user_id: str | None = None
 
     # -- OAuth2 code exchange -------------------------------------------------
 
@@ -93,6 +98,26 @@ class DiscordOAuth:
         self._bot_guild_ids_cache = (now, ids)
         return ids
 
+    async def get_bot_user_id(self) -> str:
+        """The bot's own Discord user ID -- never changes for a running
+        process, so it's cached indefinitely once fetched."""
+        if self._bot_user_id is None:
+            headers = {"Authorization": f"Bot {self.bot_token}"}
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{API_BASE}/users/@me", headers=headers)
+            if resp.status_code != 200:
+                raise DiscordOAuthError(f"Bot identity fetch failed ({resp.status_code}): {resp.text}")
+            self._bot_user_id = resp.json()["id"]
+        return self._bot_user_id
+
+    async def get_guild_member(self, guild_id: int, user_id: str) -> dict[str, Any]:
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_BASE}/guilds/{guild_id}/members/{user_id}", headers=headers)
+        if resp.status_code != 200:
+            raise DiscordOAuthError(f"Guild member fetch failed ({resp.status_code}): {resp.text}")
+        return resp.json()
+
     async def get_guild_text_channels(self, guild_id: int) -> list[dict[str, Any]]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
         async with httpx.AsyncClient() as client:
@@ -105,21 +130,50 @@ class DiscordOAuth:
             (c for c in channels if c.get("type") in (GUILD_TEXT, GUILD_ANNOUNCEMENT)),
             key=lambda c: c.get("position", 0),
         )
-    
-    async def get_guild_roles(self, guild_id: int) -> list[dict[str, Any]]:
+
+    async def _get_raw_guild_roles(self, guild_id: int) -> list[dict[str, Any]]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{API_BASE}/guilds/{guild_id}/roles", headers=headers)
         if resp.status_code != 200:
             raise DiscordOAuthError(f"Guild roles fetch failed ({resp.status_code}): {resp.text}")
+        return resp.json()
 
-        roles = resp.json()
+    async def get_guild_roles(self, guild_id: int) -> list[dict[str, Any]]:
+        roles = await self._get_raw_guild_roles(guild_id)
         return sorted(
             (r for r in roles if not r.get("managed") and str(r["id"]) != str(guild_id)),
             key=lambda r: r.get("position", 0),
             reverse=True,
         )
-    
+
+    async def get_sendable_text_channels(self, guild_id: int) -> list[dict[str, Any]]:
+        """Text/announcement channels annotated with whether the bot can
+        actually post an embed there, computed from real permission
+        overwrites rather than just channel type/visibility."""
+        bot_user_id = await self.get_bot_user_id()
+        member, roles, channels = await asyncio.gather(
+            self.get_guild_member(guild_id, bot_user_id),
+            self._get_raw_guild_roles(guild_id),
+            self.get_guild_text_channels(guild_id),
+        )
+        member_role_ids = set(member.get("roles", []))
+        everyone_role = next(
+            (r for r in roles if r["id"] == str(guild_id)), {"id": str(guild_id), "permissions": "0"}
+        )
+
+        result = []
+        for channel in channels:
+            permissions = compute_channel_permissions(
+                member_role_ids=member_role_ids,
+                bot_user_id=bot_user_id,
+                everyone_role=everyone_role,
+                guild_roles=roles,
+                overwrites=channel.get("permission_overwrites", []),
+            )
+            result.append({"id": channel["id"], "name": channel["name"], "can_send": can_send_embeds(permissions)})
+        return result
+
     async def get_guild_emojis(self, guild_id: int) -> list[dict[str, Any]]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
         async with httpx.AsyncClient() as client:
@@ -127,6 +181,30 @@ class DiscordOAuth:
         if resp.status_code != 200:
             raise DiscordOAuthError(f"Guild emojis fetch failed ({resp.status_code}): {resp.text}")
         return resp.json()
+
+    # -- message/reaction sending (embed sender) -------------------------------
+
+    async def send_message(
+        self, channel_id: int, *, content: str | None, embeds: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        payload: dict[str, Any] = {"embeds": embeds}
+        if content:
+            payload["content"] = content
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{API_BASE}/channels/{channel_id}/messages", headers=headers, json=payload)
+        if resp.status_code not in (200, 201):
+            raise DiscordOAuthError(f"Message send failed ({resp.status_code}): {resp.text}")
+        return resp.json()
+
+    async def add_reaction(self, channel_id: int, message_id: str, emoji: str) -> bool:
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        encoded = quote(emoji, safe="")
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{encoded}/@me", headers=headers
+            )
+        return resp.status_code == 204
 
 
 discord_oauth = DiscordOAuth(

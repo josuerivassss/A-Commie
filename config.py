@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me"
     JWT_EXPIRES_MINUTES: int = 60 * 24 * 7  # 7 days, matches Discord's own token lifetime ballpark
 
+    # How often (seconds) a guild may send a dashboard-built embed. Applies
+    # server-wide, not per-user -- prevents accidental spam regardless of
+    # who's clicking "Send" on the dashboard.
+    EMBED_SEND_COOLDOWN_SECONDS: int = 5
+
     class Config:
         env_file = ".env"
 
