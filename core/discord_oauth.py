@@ -188,7 +188,15 @@ class DiscordOAuth:
         self, channel_id: int, *, content: str | None, embeds: list[dict[str, Any]]
     ) -> dict[str, Any]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
-        payload: dict[str, Any] = {"embeds": embeds}
+        payload: dict[str, Any] = {
+            "embeds": embeds,
+            # Mirrors the bot's own discord.py AllowedMentions(everyone=False,
+            # roles=True, users=True) from main.py -- this raw REST call
+            # bypasses discord.py entirely, so it needs the same restriction
+            # set explicitly here or @everyone/@here in dashboard content
+            # would actually ping regardless of the bot's own settings.
+            "allowed_mentions": {"parse": ["roles", "users"]},
+        }
         if content:
             payload["content"] = content
         async with httpx.AsyncClient() as client:
