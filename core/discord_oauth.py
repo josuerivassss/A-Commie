@@ -1,8 +1,8 @@
 """Minimal async Discord REST client for the OAuth login flow: code
 exchange, the logged-in user's profile, the guilds they can manage, which
 of those the bot is actually in, a guild's text channels/roles/emojis (for
-the dashboard's selectors), and sending messages/reactions on the bot's
-behalf (embed sender).
+the dashboard's selectors), and sending messages/reactions/panels on the
+bot's behalf (embed sender, ticket panel).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from urllib.parse import quote
 import httpx
 
 from config import settings
-from core.permissions import can_send_embeds, compute_channel_permissions
+from core.permissions import can_host_tickets, can_send_embeds, compute_channel_permissions
 
 API_BASE = "https://discord.com/api/v10"
 MANAGE_GUILD = 0x20
@@ -147,10 +147,11 @@ class DiscordOAuth:
             reverse=True,
         )
 
-    async def get_sendable_text_channels(self, guild_id: int) -> list[dict[str, Any]]:
-        """Text/announcement channels annotated with whether the bot can
-        actually post an embed there, computed from real permission
-        overwrites rather than just channel type/visibility."""
+    async def _compute_channel_permissions_batch(self, guild_id: int) -> list[tuple[dict[str, Any], int]]:
+        """Shared groundwork for any endpoint needing real per-channel
+        permissions (embeds sender, tickets) -- fetches bot identity,
+        member, roles and channels once, then computes the effective
+        permission bitfield for each channel."""
         bot_user_id = await self.get_bot_user_id()
         member, roles, channels = await asyncio.gather(
             self.get_guild_member(guild_id, bot_user_id),
@@ -171,8 +172,30 @@ class DiscordOAuth:
                 guild_roles=roles,
                 overwrites=channel.get("permission_overwrites", []),
             )
-            result.append({"id": channel["id"], "name": channel["name"], "can_send": can_send_embeds(permissions)})
+            result.append((channel, permissions))
         return result
+
+    async def get_sendable_text_channels(self, guild_id: int) -> list[dict[str, Any]]:
+        """Text/announcement channels annotated with whether the bot can
+        actually post an embed there, computed from real permission
+        overwrites rather than just channel type/visibility."""
+        pairs = await self._compute_channel_permissions_batch(guild_id)
+        return [{"id": c["id"], "name": c["name"], "can_send": can_send_embeds(perms)} for c, perms in pairs]
+
+    async def get_ticket_channels(self, guild_id: int) -> list[dict[str, Any]]:
+        """Same channel list, annotated for two different ticket-related
+        needs: hosting the parent channel (thread creation) and posting
+        the panel message (a normal embed)."""
+        pairs = await self._compute_channel_permissions_batch(guild_id)
+        return [
+            {
+                "id": c["id"],
+                "name": c["name"],
+                "can_host_tickets": can_host_tickets(perms),
+                "can_send_panel": can_send_embeds(perms),
+            }
+            for c, perms in pairs
+        ]
 
     async def get_guild_emojis(self, guild_id: int) -> list[dict[str, Any]]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
@@ -182,23 +205,21 @@ class DiscordOAuth:
             raise DiscordOAuthError(f"Guild emojis fetch failed ({resp.status_code}): {resp.text}")
         return resp.json()
 
-    # -- message/reaction sending (embed sender) -------------------------------
+    # -- message/reaction/panel sending (embed sender, tickets) ---------------
 
     async def send_message(
-        self, channel_id: int, *, content: str | None, embeds: list[dict[str, Any]]
+        self, channel_id: int, *, content: str | None, embeds: list[dict[str, Any]],
+        components: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
         payload: dict[str, Any] = {
             "embeds": embeds,
-            # Mirrors the bot's own discord.py AllowedMentions(everyone=False,
-            # roles=True, users=True) from main.py -- this raw REST call
-            # bypasses discord.py entirely, so it needs the same restriction
-            # set explicitly here or @everyone/@here in dashboard content
-            # would actually ping regardless of the bot's own settings.
             "allowed_mentions": {"parse": ["roles", "users"]},
         }
         if content:
             payload["content"] = content
+        if components:
+            payload["components"] = components
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{API_BASE}/channels/{channel_id}/messages", headers=headers, json=payload)
         if resp.status_code not in (200, 201):
