@@ -14,17 +14,17 @@ SEND_MESSAGES = 1 << 11
 ADD_REACTIONS = 1 << 6
 EMBED_LINKS = 1 << 14
 ADMINISTRATOR = 1 << 3
-
-REQUIRED_TO_SEND_EMBED = VIEW_CHANNEL | SEND_MESSAGES | EMBED_LINKS
-
 CREATE_PRIVATE_THREADS = 1 << 36
 SEND_MESSAGES_IN_THREADS = 1 << 38
 
-REQUIRED_FOR_TICKET_PARENT = VIEW_CHANNEL | CREATE_PRIVATE_THREADS | SEND_MESSAGES_IN_THREADS
+REQUIRED_TO_SEND_EMBED = VIEW_CHANNEL | SEND_MESSAGES | EMBED_LINKS
 
-
-def can_host_tickets(permissions: int) -> bool:
-    return (permissions & REQUIRED_FOR_TICKET_PARENT) == REQUIRED_FOR_TICKET_PARENT
+# The ticket channel now serves both roles at once (panel location + thread
+# parent), so it needs the union of "can post a normal embed here" and
+# "can create/reply inside private threads here".
+REQUIRED_FOR_TICKET_CHANNEL = (
+    VIEW_CHANNEL | SEND_MESSAGES | EMBED_LINKS | CREATE_PRIVATE_THREADS | SEND_MESSAGES_IN_THREADS
+)
 
 
 def compute_channel_permissions(
@@ -73,3 +73,7 @@ def compute_channel_permissions(
 
 def can_send_embeds(permissions: int) -> bool:
     return (permissions & REQUIRED_TO_SEND_EMBED) == REQUIRED_TO_SEND_EMBED
+
+
+def can_host_tickets(permissions: int) -> bool:
+    return (permissions & REQUIRED_FOR_TICKET_CHANNEL) == REQUIRED_FOR_TICKET_CHANNEL

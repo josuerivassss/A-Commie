@@ -1,8 +1,8 @@
 """Minimal async Discord REST client for the OAuth login flow: code
 exchange, the logged-in user's profile, the guilds they can manage, which
 of those the bot is actually in, a guild's text channels/roles/emojis (for
-the dashboard's selectors), and sending messages/reactions/panels on the
-bot's behalf (embed sender, ticket panel).
+the dashboard's selectors), and sending/deleting messages/reactions/panels
+on the bot's behalf (embed sender, ticket panel).
 """
 from __future__ import annotations
 
@@ -183,19 +183,12 @@ class DiscordOAuth:
         return [{"id": c["id"], "name": c["name"], "can_send": can_send_embeds(perms)} for c, perms in pairs]
 
     async def get_ticket_channels(self, guild_id: int) -> list[dict[str, Any]]:
-        """Same channel list, annotated for two different ticket-related
-        needs: hosting the parent channel (thread creation) and posting
-        the panel message (a normal embed)."""
+        """Channels annotated with whether the bot can both create private
+        threads there AND post the panel embed -- a single unified
+        requirement, since the panel and the thread parent are now the
+        same channel."""
         pairs = await self._compute_channel_permissions_batch(guild_id)
-        return [
-            {
-                "id": c["id"],
-                "name": c["name"],
-                "can_host_tickets": can_host_tickets(perms),
-                "can_send_panel": can_send_embeds(perms),
-            }
-            for c, perms in pairs
-        ]
+        return [{"id": c["id"], "name": c["name"], "can_host_tickets": can_host_tickets(perms)} for c, perms in pairs]
 
     async def get_guild_emojis(self, guild_id: int) -> list[dict[str, Any]]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
@@ -225,6 +218,16 @@ class DiscordOAuth:
         if resp.status_code not in (200, 201):
             raise DiscordOAuthError(f"Message send failed ({resp.status_code}): {resp.text}")
         return resp.json()
+
+    async def delete_message(self, channel_id: int | str, message_id: int | str) -> bool:
+        """Best-effort delete (e.g. retiring a previous ticket panel before
+        posting a new one) -- returns False instead of raising on failure,
+        since the caller shouldn't be blocked by an already-deleted or
+        no-longer-accessible old message."""
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(f"{API_BASE}/channels/{channel_id}/messages/{message_id}", headers=headers)
+        return resp.status_code == 204
 
     async def add_reaction(self, channel_id: int, message_id: str, emoji: str) -> bool:
         headers = {"Authorization": f"Bot {self.bot_token}"}
