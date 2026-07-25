@@ -45,10 +45,12 @@ PANEL_TEXT = {
     "en": {"title": "Need help?", "description": "Click the button below to open a private ticket with our staff."},
     "es": {"title": "\u00bfNecesitas ayuda?", "description": "Haz clic en el bot\u00f3n de abajo para abrir un ticket privado con nuestro staff."},
 }
-PANEL_BUTTON_LABEL = "Open Ticket"
+PANEL_BUTTON_LABEL = "Open"
 PANEL_BUTTON_EMOJI = "\U0001f3ab"
 PANEL_COLOR = 0x992D22  # discord.Colour.dark_red(), matches the bot's own panel command
 
+BOT_AVATAR_URL = "https://i.imgur.com/J7qH6M1.png"
+TICKETS_BANNER_URL = "https://i.imgur.com/k9zLycU.png"
 
 class TicketsUpdate(BaseModel):
     enabled: Optional[bool] = None
@@ -111,7 +113,7 @@ async def post_panel(guild_id: int, body: PostPanelRequest):
 
     language = await mongo.get(table="guilds", id=guild_id, path="language") or "en"
     text = PANEL_TEXT.get(language, PANEL_TEXT["en"])
-    embed = {"title": text["title"], "description": text["description"], "color": PANEL_COLOR}
+    embed = {"title": text["title"], "description": text["description"], "color": PANEL_COLOR, "footer": {"text": "Commie Tickets", "icon_url": BOT_AVATAR_URL}, "image": {"url": TICKETS_BANNER_URL}}
     components = [{
         "type": 1,
         "components": [{
