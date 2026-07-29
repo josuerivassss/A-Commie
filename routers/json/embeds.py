@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends
 
 from core.access import require_access
 from core.discord_oauth import DiscordOAuthError, discord_oauth
-from core.embed_cooldown import mark_sent, seconds_remaining
+from core.embed_cooldown import release, seconds_remaining, try_reserve
 from core.exceptions import APIException
 from schemas.responses import HTTPResponse
 from schemas.requests import SNOWFLAKE_MAX, SNOWFLAKE_MIN
@@ -158,15 +158,17 @@ async def get_cooldown(guild_id: int):
     response_model=HTTPResponse,
 )
 async def send_embed(guild_id: int, body: SendEmbedRequest):
-    remaining = seconds_remaining(guild_id)
-    if remaining > 0:
+    if not try_reserve(guild_id):
+        remaining = seconds_remaining(guild_id)
         raise APIException(status=429, error="embed_cooldown_active", data={"seconds_remaining": remaining})
 
     channels = await discord_oauth.get_sendable_text_channels(guild_id)
     target = next((c for c in channels if int(c["id"]) == body.channel_id), None)
     if target is None:
+        release(guild_id)
         raise APIException(status=404, error="Channel not found in this server")
     if not target["can_send"]:
+        release(guild_id)
         raise APIException(status=403, error="The bot cannot send embeds in that channel")
 
     try:
@@ -174,17 +176,17 @@ async def send_embed(guild_id: int, body: SendEmbedRequest):
             body.channel_id, content=body.content, embeds=[e.to_discord_dict() for e in body.embeds]
         )
     except DiscordOAuthError as exc:
+        release(guild_id)
         raise APIException(status=502, error=f"Discord rejected the message: {exc}") from None
 
-    mark_sent(guild_id)
-
+    # mark_sent() call removed -- the slot was already reserved above
     failed_reactions = []
     for index, raw_emoji in enumerate(body.reactions):
         ok = await discord_oauth.add_reaction(body.channel_id, message["id"], _normalize_reaction(raw_emoji))
         if not ok:
             failed_reactions.append(raw_emoji)
         if index < len(body.reactions) - 1:
-            await asyncio.sleep(0.35)  # stay under Discord's reaction-route rate limit
+            await asyncio.sleep(0.35)
 
     return HTTPResponse.use(
         data={"message_id": message["id"], "channel_id": body.channel_id, "failed_reactions": failed_reactions}
