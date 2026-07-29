@@ -14,6 +14,7 @@ from core.discord_oauth import DiscordOAuthError, discord_oauth
 from core.embed_cooldown import mark_sent, seconds_remaining
 from core.exceptions import APIException
 from schemas.responses import HTTPResponse
+from schemas.requests import SNOWFLAKE_MAX, SNOWFLAKE_MIN
 
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -112,7 +113,7 @@ class EmbedPayload(BaseModel):
 
 
 class SendEmbedRequest(BaseModel):
-    channel_id: int
+    channel_id: int = Field(ge=SNOWFLAKE_MIN, le=SNOWFLAKE_MAX)
     content: Optional[str] = Field(default=None, max_length=2000)
     embeds: list[EmbedPayload] = Field(min_length=1, max_length=MAX_EMBEDS)
     reactions: list[str] = Field(default_factory=list, max_length=MAX_REACTIONS)

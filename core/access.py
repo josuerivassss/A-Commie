@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 import jwt as pyjwt
+import secrets
 from fastapi import Header
 
 from config import settings
@@ -28,8 +29,7 @@ from core.jwt_auth import decode_jwt
 
 
 def _is_valid_api_key(x_api_key: str) -> bool:
-    return bool(settings.API_KEY) and x_api_key == settings.API_KEY
-
+    return bool(settings.API_KEY) and secrets.compare_digest(x_api_key, settings.API_KEY)
 
 def _decode_bearer(authorization: str) -> dict[str, Any] | None:
     if not authorization.startswith("Bearer "):

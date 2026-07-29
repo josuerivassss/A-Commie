@@ -13,6 +13,7 @@ from core.discord_oauth import discord_oauth
 from core.manager import mongo
 from schemas.requests import GuildConfigUpdate
 from schemas.responses import HTTPResponse
+from schemas.requests import SNOWFLAKE_MAX, SNOWFLAKE_MIN
 
 router = APIRouter(prefix="/json/guilds", tags=["Guilds"], dependencies=[Depends(require_access)])
 
@@ -24,10 +25,9 @@ DEFAULT_STARBOARD = {
     "count_self_stars": False,
 }
 
-
 class StarboardUpdate(BaseModel):
     enabled: Optional[bool] = None
-    channel_id: Optional[int] = None
+    channel_id: Optional[int] = Field(default=None, ge=SNOWFLAKE_MIN, le=SNOWFLAKE_MAX)
     emoji: Optional[str] = Field(default=None, max_length=60)
     threshold: Optional[int] = Field(default=None, ge=1, le=500)
     count_self_stars: Optional[bool] = None

@@ -23,6 +23,7 @@ from core.discord_oauth import DiscordOAuthError, discord_oauth
 from core.exceptions import APIException
 from core.manager import mongo
 from schemas.responses import HTTPResponse
+from schemas.requests import SNOWFLAKE_MAX, SNOWFLAKE_MIN
 
 router = APIRouter(prefix="/json/guilds/{guild_id}/tickets", tags=["Tickets"], dependencies=[Depends(require_access)])
 
@@ -54,12 +55,12 @@ TICKETS_BANNER_URL = "https://i.imgur.com/k9zLycU.png"
 
 class TicketsUpdate(BaseModel):
     enabled: Optional[bool] = None
-    staff_role_id: Optional[int] = None
+    staff_role_id: Optional[int] = Field(default=None, ge=SNOWFLAKE_MIN, le=SNOWFLAKE_MAX)
     welcome_message: Optional[str] = Field(default=None, min_length=MIN_MESSAGE_LENGTH, max_length=MAX_MESSAGE_LENGTH)
 
 
 class PostPanelRequest(BaseModel):
-    channel_id: int
+    channel_id: int = Field(ge=SNOWFLAKE_MIN, le=SNOWFLAKE_MAX)
 
 
 def _serialize(doc: dict) -> dict:
