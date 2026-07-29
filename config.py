@@ -1,3 +1,5 @@
+from pydantic_settings import BaseSettings
+
 class Settings(BaseSettings):
     VERSION: str = "2.1.0"
     API_KEY: str = ""
