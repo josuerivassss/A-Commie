@@ -1,7 +1,7 @@
 """Database managers shared by every /json router.
 
 Same collections/tables as the B-Commie bot (MongoDB Atlas: `guilds`,
-`tags`; PostgreSQL/Neon: `reminders`, `giveaways`, `user_timezones`,
+`tags`; PostgreSQL/Neon: `reminders`, `user_timezones`,
 `audit_log`) -- this API is a read/write companion to the bot's data, not a
 separate schema. Table/collection names and document shapes must stay in
 sync with the bot's `src/bcommie/cogs/*.py`.

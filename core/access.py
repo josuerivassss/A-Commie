@@ -10,8 +10,7 @@ Two layers apply to every dashboard request:
      end-user dashboard sessions.
 
 Guild-scoped routes additionally require the user to manage that guild AND
-the bot to actually be present there. User-scoped routes (e.g. a user's own
-reminders) just require the token's subject to match the path's user_id.
+the bot to actually be present there.
 """
 from __future__ import annotations
 
