@@ -16,6 +16,7 @@ EMBED_LINKS = 1 << 14
 ADMINISTRATOR = 1 << 3
 CREATE_PRIVATE_THREADS = 1 << 36
 SEND_MESSAGES_IN_THREADS = 1 << 38
+CHANGE_NICKNAME = 1 << 26
 
 REQUIRED_TO_SEND_EMBED = VIEW_CHANNEL | SEND_MESSAGES | EMBED_LINKS
 
@@ -77,3 +78,6 @@ def can_send_embeds(permissions: int) -> bool:
 
 def can_host_tickets(permissions: int) -> bool:
     return (permissions & REQUIRED_FOR_TICKET_CHANNEL) == REQUIRED_FOR_TICKET_CHANNEL
+
+def can_change_nickname(permissions: int) -> bool:
+    return bool(permissions & (CHANGE_NICKNAME | ADMINISTRATOR))

@@ -9,11 +9,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from core.access import require_access
-from core.discord_oauth import discord_oauth
+from core.discord_oauth import DiscordOAuthError, discord_oauth
 from core.manager import mongo
 from schemas.requests import GuildConfigUpdate
 from schemas.responses import HTTPResponse
 from schemas.requests import SNOWFLAKE_MAX, SNOWFLAKE_MIN
+from core.permissions import can_change_nickname
+from core.exceptions import APIException
 
 router = APIRouter(prefix="/json/guilds", tags=["Guilds"], dependencies=[Depends(require_access)])
 
@@ -61,6 +63,20 @@ async def get_guild_config(guild_id: int):
     doc = await mongo.get(table="guilds", id=guild_id)
     return HTTPResponse.use(data=_serialize_guild(doc or {}))
 
+@router.get(
+    "/{guild_id}/nickname",
+    description="Returns the bot's current nickname in this guild and whether the dashboard can change it.",
+    response_model=HTTPResponse,
+)
+async def get_nickname(guild_id: int):
+    bot_user_id = await discord_oauth.get_bot_user_id()
+    member = await discord_oauth.get_guild_member(guild_id, bot_user_id)
+    permissions = await discord_oauth.get_bot_guild_permissions(guild_id)
+    return HTTPResponse.use(data={
+        "nickname": member.get("nick"),
+        "can_change": can_change_nickname(permissions),
+    })
+
 @router.patch(
     "/{guild_id}",
     description="Partially updates a guild's configuration. Only provided fields are changed.",
@@ -70,6 +86,18 @@ async def update_guild_config(guild_id: int, body: GuildConfigUpdate):
     updates = body.model_dump(exclude_none=True)
     if not updates:
         return HTTPResponse.use(status=400, error="No fields provided to update")
+
+    # Nickname is live Discord state, not part of the Mongo doc -- handle
+    # it via a REST call instead of the mongo.set loop below.
+    nickname = updates.pop("nickname", None)
+    if nickname is not None:
+        permissions = await discord_oauth.get_bot_guild_permissions(guild_id)
+        if not can_change_nickname(permissions):
+            raise APIException(status=403, error="The bot needs the \"Change Nickname\" permission in this server")
+        try:
+            await discord_oauth.set_bot_nickname(guild_id, nickname or None)
+        except DiscordOAuthError as exc:
+            raise APIException(status=502, error=f"Discord rejected the nickname change: {exc}") from None
 
     field_map = {
         "prefix": "prefix",

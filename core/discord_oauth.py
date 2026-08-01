@@ -118,6 +118,34 @@ class DiscordOAuth:
             raise DiscordOAuthError(f"Guild member fetch failed ({resp.status_code}): {resp.text}")
         return resp.json()
 
+    async def get_bot_guild_permissions(self, guild_id: int) -> int:
+        """Base guild-level permission bitfield for the bot (no channel
+        overwrites) -- used for guild-wide actions like changing the bot's
+        own nickname, which aren't scoped to any single channel."""
+        bot_user_id = await self.get_bot_user_id()
+        member, roles = await asyncio.gather(
+            self.get_guild_member(guild_id, bot_user_id),
+            self._get_raw_guild_roles(guild_id),
+        )
+        member_role_ids = set(member.get("roles", []))
+        everyone_role = next(
+            (r for r in roles if r["id"] == str(guild_id)), {"id": str(guild_id), "permissions": "0"}
+        )
+        base = int(everyone_role["permissions"])
+        for role in roles:
+            if role["id"] in member_role_ids:
+                base |= int(role["permissions"])
+        return base
+
+    async def set_bot_nickname(self, guild_id: int, nickname: str | None) -> None:
+        headers = {"Authorization": f"Bot {self.bot_token}"}
+        async with httpx.AsyncClient() as client:
+            resp = await client.patch(
+                f"{API_BASE}/guilds/{guild_id}/members/@me", headers=headers, json={"nick": nickname}
+            )
+        if resp.status_code != 200:
+            raise DiscordOAuthError(f"Nickname change failed ({resp.status_code}): {resp.text}")
+
     async def get_guild_text_channels(self, guild_id: int) -> list[dict[str, Any]]:
         headers = {"Authorization": f"Bot {self.bot_token}"}
         async with httpx.AsyncClient() as client:

@@ -10,6 +10,7 @@ class FraseCreate(BaseModel):
 
 class GuildConfigUpdate(BaseModel):
     prefix: Optional[str] = Field(default=None, max_length=10)
+    nickname: Optional[str] = Field(default=None, max_length=32)
     language: Optional[str] = Field(default=None, max_length=5)
     welcome_enabled: Optional[bool] = None
     welcome_channel_id: Optional[int] = Field(default=None, ge=SNOWFLAKE_MIN, le=SNOWFLAKE_MAX)
