@@ -82,6 +82,17 @@ class MongoManager:
         result = await db[table].update_one({"_id": id}, {"$unset": {path: ""}})
         return result.modified_count > 0
 
+    async def push(self, *, table: str, id: int | str, field: str, value: Any, unique: bool = True) -> bool:
+        db = self._require_db()
+        operator = "$addToSet" if unique else "$push"
+        result = await db[table].update_one({"_id": id}, {operator: {field: value}}, upsert=True)
+        return result.acknowledged
+
+    async def pull(self, *, table: str, id: int | str, field: str, value: Any) -> bool:
+        db = self._require_db()
+        result = await db[table].update_one({"_id": id}, {"$pull": {field: value}})
+        return result.acknowledged
+
 
 class PostgresManager:
     """Read/write access to the bot's PostgreSQL tables (reminders, audit_log, ...)."""
