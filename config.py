@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173"
     ENVIRONMENT: str = "production"  # "development" | "production"
 
+    # When True, any Discord user managing a guild the bot is in can use
+    # the dashboard -- the dashboard_access allowlist is bypassed, not
+    # removed. Flip to False to require an explicit `!dashboard grant`
+    # again without touching any other code.
+    DASHBOARD_OPEN_ACCESS: bool = True
+
     # No default: forces the process to fail at startup if unset, instead
     # of silently running with a publicly known secret.
     JWT_SECRET: str

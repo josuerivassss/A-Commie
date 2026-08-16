@@ -83,8 +83,8 @@ async def me(authorization: str = Header(default="")):
         payload = decode_jwt(token)
     except pyjwt.PyJWTError as exc:
         raise APIException(status=401, error="Invalid or expired session") from exc
-    
-    if not await is_authorized(int(payload["sub"])):
+
+    if not settings.DASHBOARD_OPEN_ACCESS and not await is_authorized(int(payload["sub"])):
         raise APIException(status=403, error="dashboard_access_denied")
 
     manageable = await discord_oauth.get_user_manageable_guilds(payload["discord_token"])

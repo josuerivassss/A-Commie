@@ -41,11 +41,15 @@ def _decode_bearer(authorization: str) -> dict[str, Any] | None:
 
 
 async def _require_authorized_user(authorization: str) -> dict[str, Any]:
-    """Shared by every dependency below: valid JWT + on the dashboard allowlist."""
+    """Shared by every dependency below: valid JWT, plus the dashboard
+    allowlist check -- skipped while settings.DASHBOARD_OPEN_ACCESS is on.
+    The allowlist itself (is_authorized/dashboard_access collection) is
+    left untouched so access can be closed again by flipping that one
+    setting, without needing to re-add this check."""
     payload = _decode_bearer(authorization)
     if payload is None:
         raise APIException(status=401, error="Missing or invalid credentials")
-    if not await is_authorized(int(payload["sub"])):
+    if not settings.DASHBOARD_OPEN_ACCESS and not await is_authorized(int(payload["sub"])):
         raise APIException(status=403, error="dashboard_access_denied")
     return payload
 
