@@ -44,3 +44,20 @@ async def toggle_command(guild_id: int, body: ToggleRequest):
         await mongo.push(table="guilds", id=guild_id, field="disabled", value=body.id, unique=True)
     disabled = await mongo.get(table="guilds", id=guild_id, path="disabled") or []
     return HTTPResponse.use(data={"disabled": disabled})
+
+class ToggleManyRequest(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=64)
+    enabled: bool
+
+@router.patch("/toggle-many")
+async def toggle_many_commands(guild_id: int, body: ToggleManyRequest):
+    invalid = [i for i in body.ids if not TOGGLE_ID_PATTERN.match(i)]
+    if invalid:
+        return HTTPResponse.use(status=400, error=f"Invalid command/cog ID(s): {', '.join(invalid)}")
+    if body.enabled:
+        await mongo.pull_many(table="guilds", id=guild_id, field="disabled", values=body.ids)
+    else:
+        for target_id in body.ids:
+            await mongo.push(table="guilds", id=guild_id, field="disabled", value=target_id)
+    disabled = await mongo.get(table="guilds", id=guild_id, path="disabled") or []
+    return HTTPResponse.use(data={"disabled": disabled})

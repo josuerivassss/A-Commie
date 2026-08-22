@@ -92,6 +92,13 @@ class MongoManager:
         db = self._require_db()
         result = await db[table].update_one({"_id": id}, {"$pull": {field: value}})
         return result.acknowledged
+    
+    async def pull_many(self, *, table: str, id: int | str, field: str, values: list[Any]) -> bool:
+        db = self._require_db()
+        if not values:
+            return True
+        result = await db[table].update_one({"_id": id}, {"$pullAll": {field: values}})
+        return result.acknowledged
 
 
 class PostgresManager:
